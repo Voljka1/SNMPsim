@@ -1,0 +1,7 @@
+{
+    "user":"user",
+    "auth_protocol":"SHA",
+    "auth_key":"SECRET>8BYTES",
+    "priv_protocol":"AES",
+    "priv_key":"SECRET>8BYTES"
+}
