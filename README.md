@@ -9,6 +9,7 @@ A PowerShell-based automation tool to capture and replay SNMP device configurati
 - **SNMP Capture**: Record live device configurations with real-time OID peeking.
 - **SNMP Replay**: Host a local SNMP agent on port 1161.
 - **Integrated Shell**: Quick access to the managed virtual environment.
+- **SNMPv1/v2c/v3 capture**: little patch enabled support for SNMPv3
 
 ## ⚠️ Version Stability & Conflict Warning
 
@@ -43,7 +44,8 @@ Execute this command in your terminal:
 2. **Run**: Execute the script using one of the methods in the Execution Policy section.
 3. **Initial Setup**: The script will auto-detect Python 3.12 and build the `snmp_env_stable` folder.
 4. **Options**:
-    - **[1] Capture**: Record from a physical IP.
+    - **[1] Capture**: Record from a physical IP. (SNMP v1/v2c/v3)
+          -**SNMP v3**: SNMPv3 user and other stuff stored in json file. See example.
     - **[2] Replay**: Start a simulation from a `.snmprec` file.
     - **[3] Shell**: Enter the venv. Type `exit` to return to the menu.
 
