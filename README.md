@@ -45,7 +45,7 @@ Execute this command in your terminal:
 3. **Initial Setup**: The script will auto-detect Python 3.12 and build the `snmp_env_stable` folder.
 4. **Options**:
     - **[1] Capture**: Record from a physical IP. (SNMP v1/v2c/v3)
-          -**SNMP v3**: SNMPv3 user and other stuff stored in json file. See example.
+      * **SNMP v3**: SNMPv3 user and other stuff stored in json file. See example.
     - **[2] Replay**: Start a simulation from a `.snmprec` file.
     - **[3] Shell**: Enter the venv. Type `exit` to return to the menu.
 
