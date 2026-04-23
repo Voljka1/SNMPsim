@@ -1,94 +1,116 @@
-# 1. Define the path at the TOP of the script (Global Scope)
-$venvPath = Join-Path $PSScriptRoot "snmp_env_stable"
-$pythonInVenv = Join-Path $venvPath "Scripts\python.exe"
+<#
+.SYNOPSIS
+    Snmpsim manager for creating a stable environment and running simulations.
+.EXAMPLE
+    .\snmpsim.ps1
+    Explains how to run the script and what the expected output is.
+
+.NOTES
+    Author:       Voljka
+    Date:         2026-04-23
+    Version:      1.1.0
+    GitHub/Wiki:  https://github.com/Voljka1
+    
+    Change Log:
+    v1.0.0 (2026-04-22) - Initial Release
+	v1.1.0 (2026-04-22) - Cleanup code
+#>
+
+[CmdletBinding()]
+param ()
+
+# --- Configuration ---
+$venvName      = "snmp_env_stable"
+$venvPath      = Join-Path $PSScriptRoot $venvName
+$pythonInVenv  = Join-Path $venvPath "Scripts\python.exe"
+$pipInVenv     = Join-Path $venvPath "Scripts\pip.exe"
+
+# --- Functions ---
 
 function Ensure-SnmpEnv {
-    # 1. If it venv exists with python inside, return
-    if (Test-Path $pythonInVenv) {
-		# Write-Host "[+] Check SNMPv3 support" -ForegroundColor Yellow
-		# Invoke-SnmpPatch -VenvPath $venvPath
-        return $true
-    }
+    if (Test-Path $pythonInVenv) { return $true }
 
-    Write-Host "[!] Environment not found. Searching PATH for Python 3.11/3.12..." -ForegroundColor Yellow
+    Write-Host "[!] Environment not found. Searching for Python 3.11/3.12..." -ForegroundColor Yellow
 
+    # Find Python
     $stablePython = Get-Command python.exe -All -ErrorAction SilentlyContinue | 
                     Where-Object { (& $_.Source --version 2>&1) -match "3\.(11|12)" } | 
                     Select-Object -First 1 -ExpandProperty Source
-
+	
     if (-not $stablePython) { 
-        Write-Host "[-] No compatible Python found. Please install 3.11 or 3.12." -ForegroundColor Red
+        Write-Host "[-] ERROR: No compatible Python found. Please install 3.11 or 3.12." -ForegroundColor Red
+		Read-Host "`nPress Enter to return to menu..."
         return $false 
     }
 
-    Write-Host "[+] Found compatible blueprint: $stablePython"
-    Write-Host "[*] Creating venv and installing libraries..." -ForegroundColor Cyan
-    
-    # 2. Original creation and install logic
-    & $stablePython -m venv "$venvPath"
-    & (Join-Path $venvPath "Scripts\pip.exe") install "snmpsim==1.1.7" "pysnmp==6.2.6" pysnmp-mibs lxml --quiet
-    Write-Host "[+] venv created!" -ForegroundColor Green
-    Start-Sleep -Seconds 2
-	# 3. THE NEW PART: Patch the source code to unlock SNMPv3
-    Invoke-SnmpPatch -VenvPath $venvPath
-    
-    Write-Host "[+] Setup Complete and SNMPv3 Unlocked!" -ForegroundColor Green
-    Read-Host "Press Enter to continue to the Manager"
-    return $true
+    try {
+        Write-Host "[*] Creating virtual environment at: $venvPath" -ForegroundColor Cyan
+        & $stablePython -m venv "$venvPath" --clear
+        
+        Write-Host "[*] Upgrading pip and installing snmpsim dependencies..." -ForegroundColor Cyan
+        & $pythonInVenv -m pip install --upgrade pip --quiet
+        & $pipInVenv install "snmpsim==1.1.7" "pysnmp==6.2.6" pysnmp-mibs lxml --quiet
+        
+        Invoke-SnmpPatch -VenvPath $venvPath
+        
+        Write-Host "[+] Setup Complete!" -ForegroundColor Green
+		Read-Host "`nPress Enter to return to menu..."
+        return $true
+    }
+    catch {
+        Write-Host "[-] Failed to set up environment: $($_.Exception.Message)" -ForegroundColor Red
+		Read-Host "`nPress Enter to return to menu..."
+        return $false
+    }
 }
 
-# Helper function used inside Ensure-SnmpEnv to keep code clean
 function Invoke-SnmpPatch {
     param($VenvPath)
     
-    # Path inside the venv to the recorder script
     $targetFile = Join-Path $VenvPath "Lib\site-packages\snmpsim\commands\cmd2rec.py"
     
-    if (Test-Path $targetFile) {
+    if (-not (Test-Path $targetFile)) {
+        Write-Host "[i] Patch target not found. Skipping." -ForegroundColor Gray
+        return
+    }
+
+    try {
         $content = Get-Content -Path $targetFile -Raw
         
-        $old1 = 'SNMPv1/v2c parameters'
-        $new1 = 'SNMPv1/v2c/3 parameters'
-        $old2 = '["1", "2c"]'
-        $new2 = '["1", "2c", "3"]'
-        $old3 = 'SNMPv1/v2c protocol version'
-        $new3 = 'SNMPv1/v2c/3 protocol version'
-
-        # Use .Contains() to see if the patch is needed
-        if ($content.Contains($old2)) {
-            Write-Host "[*] Re-enable SNMPv3 selection in recorder.py..." -ForegroundColor Cyan
+        # This is our 'anchor'. It's very specific to the version selection logic.
+        $targetPattern = '["1", "2c"]'
+        
+        if ($content.Contains($targetPattern)) {
+            Write-Host "[*] Target found. Applying SNMPv3 unlock..." -ForegroundColor Cyan
             
-            # Chain all three replacements
-            $content = $content.Replace($old1, $new1).Replace($old2, $new2).Replace($old3, $new3)
+            # We only replace these specific strings. 
+            # Using the .Replace() method on the whole string is fine as long as 
+            # we know the 'anchor' exists, but let's be even more precise:
+            $content = $content.
+							Replace('choices=["1", "2c"]', 'choices=["1", "2c", "3"]').
+                            Replace('SNMPv1/v2c parameters', 'SNMPv1/v2c/3 parameters').
+                            Replace('SNMPv1/v2c protocol version', 'SNMPv1/v2c/3 protocol version')
             
-            # Save back to file
             [System.IO.File]::WriteAllText($targetFile, $content)
-            Write-Host "[+] File patched successfully." -ForegroundColor Green
-            Start-Sleep -Seconds 2
+            Write-Host "[+] Patch applied successfully." -ForegroundColor Green
         }
         else {
-            Write-Host "[i] Patch already applied or string mismatch." -ForegroundColor Gray
-			   Start-Sleep -Seconds 1
+            Write-Host "[i] Patch already applied or file structure has changed." -ForegroundColor Gray
         }
-    } 
-	else {
-		Write-Host "[i] File not found." -ForegroundColor Gray
-		Start-Sleep -Seconds 3
-	}
+    }
+    catch {
+        Write-Host "[!] Error during patching: $($_.Exception.Message)" -ForegroundColor Red
+    }
 }
 
-# Script START.
-Clear-Host
-$setupSuccess = Ensure-SnmpEnv
+# --- Main Execution ---
+cls
+if (-not (Ensure-SnmpEnv)) { exit 1 }
 
-if (-not $setupSuccess) { 
-    Write-Host "[!] ERROR: No compatible Python (3.11/3.12) found in PATH."
-    exit 1 
-}
 # Going into virtualEnvironment
 $activateScript = Join-Path $venvPath "Scripts\Activate.ps1"
 
-# Delete previous temporary folders, if exists
+# Delete previously created temporary folders, if exists
 $oldTemps = Get-ChildItem -Path $PSScriptRoot -Filter "temp_snmp_*" -Directory -ErrorAction SilentlyContinue
 if ($oldTemps) {
     Write-Host "[!] Cleaning up leftover temporary directories..." -ForegroundColor DarkGray
@@ -97,11 +119,11 @@ if ($oldTemps) {
 
 # Main cycle - Menu
 do {
-    Clear-Host
+    cls
     Write-Host "========================================" -ForegroundColor Magenta
     Write-Host "      SNMP MANAGER (VENV MODE)         " -ForegroundColor Cyan
     Write-Host "========================================" -ForegroundColor Magenta
-    Write-Host " [1]" -ForegroundColor White -NoNewline; Write-Host " Capture (Record)" -ForegroundColor Gray
+	Write-Host " [1]" -ForegroundColor White -NoNewline; Write-Host " Capture (Record)" -ForegroundColor Gray
     Write-Host " [2]" -ForegroundColor White -NoNewline; Write-Host " Replay (Respond)" -ForegroundColor Gray
     Write-Host " [3]" -ForegroundColor White -NoNewline; Write-Host " Enter Environment (Shell)" -ForegroundColor Gray
     Write-Host " [0]" -ForegroundColor Red   -NoNewline; Write-Host " Exit" -ForegroundColor Gray
@@ -126,20 +148,21 @@ do {
 
             # Initialize as array with spaces as separators
             $argList = @("--agent-udpv4-endpoint", "$($ip):161")
-
-            switch ($verChoice) {
-                "1" {
-                    Write-Host "Enter Community v1 String: " -ForegroundColor Cyan -NoNewline
-                    $community = Read-Host
-                    $argList += "--protocol-version", "1"
-                    $argList += "--community", $community
-                }
-                "2" {
-                    Write-Host "Enter Community v2c String: " -ForegroundColor Cyan -NoNewline
-                    $community = Read-Host
-                    $argList += "--protocol-version", "2c"
-                    $argList += "--community", $community
-                }
+			
+			# Build parameters for SNMP flavor
+			switch ($verChoice) {
+                { $_ -eq "1" -or $_ -eq "2" } {
+					$community = Read-Host "Enter Community String"
+        
+					# Add protocol version
+					$proto = if ($_ -eq "1") { "1" } else { "2c" }
+					$argList += "--protocol-version", $proto
+        
+					# Add the community string. 
+					# We wrap it in quotes here just to be safe for the .exe
+					$argList += "--community", "`"$community`""
+				}
+				
                 "3" {
                     Write-Host "Enter full pathname to v3 settings JSON file: " -ForegroundColor Cyan -NoNewline
                     $v3File = Read-Host
@@ -164,41 +187,47 @@ do {
                         
 					}
                 }
-                Default {
+                # What? 3 choices not enough? Sorry.
+				Default {
                     Write-Host "Invalid selection, returning to menu..." -ForegroundColor Yellow
                     $skipCapture = $true
                 }
             }
-
+			# Where to store captured data
             if (-not $skipCapture) {
                 Write-Host "Enter Output Filename: " -ForegroundColor Cyan -NoNewline
                 $dest = Read-Host
-                if ($dest -notlike "*.snmprec") { $dest += ".snmprec" }
-                $argList += "--output-file", $dest
+                # 1. Finalize the path logic first
+				if ($dest -notlike "*.snmprec") { $dest += ".snmprec" }
+                # THIS IS YOUR CLEAN PATH (No quotes)
+				$cleanPath = Join-Path $PSScriptRoot $dest
+				# 2. Make sure the folder exists
+				$null = New-Item -ItemType Directory -Path (Split-Path $cleanPath) -Force
 
-                $argString = $argList -join " "
-                Write-Host "`n[DEBUG] Executing: $recorderExe $argString" -ForegroundColor DarkYellow
-                Write-Host "[!] Starting Capture. Press CTRL+C to stop." -ForegroundColor Green
-				Start-Sleep -Seconds 2
-                
-                $job = Start-Process -FilePath $recorderExe -ArgumentList $argString -NoNewWindow -PassThru
-                
-                while (-not $job.HasExited) {
-                    if (Test-Path $dest) {
-                        $lastLine = Get-Content -Path $dest -Tail 1 -ErrorAction SilentlyContinue
-                        if ($lastLine) { 
+				# 3. Add to arguments (Wrap it in quotes ONLY here)
+				$argList += "--output-file", "`"$cleanPath`""
+
+				# 4. Start the work
+				$job = Start-Process -FilePath $recorderExe -ArgumentList $argList -NoNewWindow -PassThru
+				
+				# 5. Monitor the file (Use the CLEAN path here)
+				while (-not $job.HasExited) {
+					if (Test-Path $cleanPath) { 
+						$lastLine = Get-Content $cleanPath -Tail 1 -ErrorAction SilentlyContinue
+						if ($lastLine) { 
                             Write-Host "[$(Get-Date -Format 'HH:mm:ss')] " -ForegroundColor Gray -NoNewline
                             Write-Host "Captured: " -NoNewline -ForegroundColor Cyan
                             Write-Host $lastLine -ForegroundColor White 
                         }
                     }
+					# Do not remove, this is 5 sec delay between peeking.
                     Start-Sleep -Seconds 5
                 }
                 Read-Host "`nCapture complete. Press Enter to return to menu..."
             }
         }
-        
-        "2" {
+				
+		"2" {
             $responderExe = Join-Path $venvPath "Scripts\snmpsim-command-responder.exe"
             Write-Host "Enter filename to play: " -ForegroundColor Cyan -NoNewline
             $file = Read-Host
@@ -209,16 +238,30 @@ do {
                 Start-Sleep -Seconds 2
             } else {
                 $tempDir = Join-Path $PSScriptRoot "temp_snmp_$(Get-Random)"
-                New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
-                Copy-Item -Path $file -Destination $tempDir
-                $commName = [System.IO.Path]::GetFileNameWithoutExtension($file)
-                Write-Host "`n[!] ACTIVE: Playing simulation" -ForegroundColor Green
-                Write-Host "[!] Use Community String: " -NoNewline; Write-Host "$commName" -ForegroundColor Cyan
-                Write-Host "[!] Port: 1161" -ForegroundColor Gray
-                Write-Host "[!] Press CTRL+C to terminate simulation`n" -ForegroundColor Yellow
-                Start-Sleep -Seconds 3
-                & $responderExe --data-dir="$tempDir" --agent-udpv4-endpoint=0.0.0.0:1161
-                Remove-Item -Path $tempDir -Recurse -Force
+				try {
+					# 1. Prepare the environment
+					New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+					Copy-Item -Path $file -Destination $tempDir
+					$commName = [System.IO.Path]::GetFileNameWithoutExtension($file)
+				
+					Write-Host "`n[!] ACTIVE: Playing simulation" -ForegroundColor Green
+					Write-Host "[!] Use Community String: " -NoNewline; Write-Host "$commName" -ForegroundColor Cyan
+					Write-Host "[!] Port: 1161" -ForegroundColor Gray
+					Write-Host "[!] Press CTRL+C to terminate simulation`n" -ForegroundColor Yellow
+					Start-Sleep -Seconds 3
+				
+					# 2. Run the Responder
+					# Using an array here is also the professional standard
+					$replayArgs = @("--data-dir=$tempDir", "--agent-udpv4-endpoint=0.0.0.0:1161")
+					& $responderExe $replayArgs
+				}
+				finally {
+					# 3. This block runs EVEN IF you press Ctrl+C
+					if (Test-Path $tempDir) {
+						Write-Host "`n[!] Stopping responder and cleaning up..." -ForegroundColor DarkGray
+						Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+					}
+                }
             }
         }
 
@@ -229,6 +272,6 @@ do {
 			powershell.exe -NoExit -ExecutionPolicy Bypass -Command $action
 		}
 
-        "0" { exit }
+        "0" { cls; exit }
     }
 } while ($choice -ne "0")
