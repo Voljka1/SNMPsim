@@ -14,6 +14,10 @@
     Change Log:
     v1.0.0 (2026-04-22) - Initial Release
 	v1.1.0 (2026-04-22) - Cleanup code
+	v1.2.0 (2026-04-24) - snmpsim-command-responder use persistent folder,
+						  second run use already compiled index files.
+						  persistent workplace in script working wolder,
+						  easy to delete, when not needed.
 #>
 
 [CmdletBinding()]
@@ -21,7 +25,9 @@ param ()
 
 # --- Configuration ---
 $venvName      = "snmp_env_stable"
+$dbFolder	   = "db"
 $venvPath      = Join-Path $PSScriptRoot $venvName
+$dbPath 	   = Join-Path $PSScriptRoot $dbFolder	
 $pythonInVenv  = Join-Path $venvPath "Scripts\python.exe"
 $pipInVenv     = Join-Path $venvPath "Scripts\pip.exe"
 
@@ -39,7 +45,6 @@ function Ensure-SnmpEnv {
 	
     if (-not $stablePython) { 
         Write-Host "[-] ERROR: No compatible Python found. Please install 3.11 or 3.12." -ForegroundColor Red
-		Read-Host "`nPress Enter to return to menu..."
         return $false 
     }
 
@@ -54,12 +59,10 @@ function Ensure-SnmpEnv {
         Invoke-SnmpPatch -VenvPath $venvPath
         
         Write-Host "[+] Setup Complete!" -ForegroundColor Green
-		Read-Host "`nPress Enter to return to menu..."
         return $true
     }
     catch {
         Write-Host "[-] Failed to set up environment: $($_.Exception.Message)" -ForegroundColor Red
-		Read-Host "`nPress Enter to return to menu..."
         return $false
     }
 }
@@ -88,8 +91,8 @@ function Invoke-SnmpPatch {
             # we know the 'anchor' exists, but let's be even more precise:
             $content = $content.
 							Replace('choices=["1", "2c"]', 'choices=["1", "2c", "3"]').
-                            Replace('SNMPv1/v2c parameters', 'SNMPv1/v2c/3 parameters').
-                            Replace('SNMPv1/v2c protocol version', 'SNMPv1/v2c/3 protocol version')
+                            Replace('help="SNMPv1/v2c parameters"', 'help="SNMPv1/v2c/3 parameters"').
+                            Replace('help="SNMPv1/v2c protocol version"', 'help="SNMPv1/v2c/3 protocol version"')
             
             [System.IO.File]::WriteAllText($targetFile, $content)
             Write-Host "[+] Patch applied successfully." -ForegroundColor Green
@@ -109,13 +112,6 @@ if (-not (Ensure-SnmpEnv)) { exit 1 }
 
 # Going into virtualEnvironment
 $activateScript = Join-Path $venvPath "Scripts\Activate.ps1"
-
-# Delete previously created temporary folders, if exists
-$oldTemps = Get-ChildItem -Path $PSScriptRoot -Filter "temp_snmp_*" -Directory -ErrorAction SilentlyContinue
-if ($oldTemps) {
-    Write-Host "[!] Cleaning up leftover temporary directories..." -ForegroundColor DarkGray
-    $oldTemps | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-}
 
 # Main cycle - Menu
 do {
@@ -229,42 +225,68 @@ do {
 				
 		"2" {
             $responderExe = Join-Path $venvPath "Scripts\snmpsim-command-responder.exe"
-            Write-Host "Enter filename to play: " -ForegroundColor Cyan -NoNewline
-            $file = Read-Host
-            if ($file -notlike "*.snmprec") { $file += ".snmprec" }
 
-            if (-not (Test-Path $file)) {
-                Write-Host "[-] ERROR: File not found!" -ForegroundColor Red
+            Write-Host "Enter filename from \$dbFolder\ to play: " -ForegroundColor Cyan -NoNewline
+            $fileInput = Read-Host
+            
+            if ($fileInput -notlike "*.snmprec") { $fileInput += ".snmprec" }
+            $sourceFile = Join-Path $dbPath $fileInput
+
+            if (-not (Test-Path $sourceFile)) {
+                Write-Host "[-] ERROR: File $fileInput not found in $dbPath" -ForegroundColor Red
                 Start-Sleep -Seconds 2
-            } else {
-                $tempDir = Join-Path $PSScriptRoot "temp_snmp_$(Get-Random)"
-				try {
-					# 1. Prepare the environment
-					New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
-					Copy-Item -Path $file -Destination $tempDir
-					$commName = [System.IO.Path]::GetFileNameWithoutExtension($file)
-				
-					Write-Host "`n[!] ACTIVE: Playing simulation" -ForegroundColor Green
-					Write-Host "[!] Use Community String: " -NoNewline; Write-Host "$commName" -ForegroundColor Cyan
-					Write-Host "[!] Port: 1161" -ForegroundColor Gray
-					Write-Host "[!] Press CTRL+C to terminate simulation`n" -ForegroundColor Yellow
-					Start-Sleep -Seconds 3
-				
-					# 2. Run the Responder
-					# Using an array here is also the professional standard
-					$replayArgs = @("--data-dir=$tempDir", "--agent-udpv4-endpoint=0.0.0.0:1161")
-					& $responderExe $replayArgs
-				}
-				finally {
-					# 3. This block runs EVEN IF you press Ctrl+C
-					if (Test-Path $tempDir) {
-						Write-Host "`n[!] Stopping responder and cleaning up..." -ForegroundColor DarkGray
-						Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
-					}
-                }
-            }
-        }
+            } 
+            else {
+                # 1. Setup a Persistent Workspace for this specific file
+                $safeName = [System.IO.Path]::GetFileNameWithoutExtension($sourceFile)
+                $workDir  = Join-Path $PSScriptRoot "work_$safeName"
+                
+                try {
+                    if (-not (Test-Path $workDir)) {
+                        New-Item -ItemType Directory -Path $workDir -Force | Out-Null
+                    }
 
+                    $sourceItem = Get-Item $sourceFile
+                    $destFile   = Join-Path $workDir $fileInput
+
+                    # 2. Logic: Only copy if necessary to preserve LastWriteTime integrity
+                    if (-not (Test-Path $destFile) -or 
+                        (Get-Item $destFile).LastWriteTime -lt $sourceItem.LastWriteTime) {
+                            
+                        Write-Host "[*] Updating workspace recording..." -ForegroundColor Gray
+                        Copy-Item -Path $sourceFile -Destination $destFile -Force
+                    }
+                    else {
+                        Write-Host "[+] Using existing recording and index (No changes detected)." -ForegroundColor DarkGray
+                    }
+                    
+                    # Visual summary for the user
+                    cls
+                    Write-Host "`n[!] STATUS: Starting Simulation" -ForegroundColor Green
+                    Write-Host "[!] Master File:  $fileInput" -ForegroundColor Gray
+                    Write-Host "[!] Workspace:    $workDir" -ForegroundColor DarkGray
+                    Write-Host "[!] Community:    $safeName" -ForegroundColor Cyan
+                    Write-Host "[!] Port:         1161" -ForegroundColor Gray
+                    Write-Host "[!] Press CTRL+C to stop`n" -ForegroundColor Yellow
+                    
+                    Start-Sleep -Seconds 5
+
+                    # 3. Run the Responder
+                                        
+                    $replayArgs = @(
+                        "--data-dir=$workDir", 
+						"--cache-dir=$workDir",
+                        "--agent-udpv4-endpoint=0.0.0.0:1161"
+                    )
+
+                    & $responderExe $replayArgs
+                }
+                finally {
+                    Write-Host "`n[!] Simulation stopped. Workspace preserved for fast-start." -ForegroundColor DarkGray
+                }
+            } # End of if (Test-Path $sourceFile)
+        } # End of switch case "2"
+		
         "3" {
 			Write-Host "`n[!] Launching Virtual Environment Shell..." -ForegroundColor Green
 			# We use a double-quoted string for the whole command so $activateScript expands correctly
