@@ -1,57 +1,73 @@
-# SNMP Simulation Manager
+# SNMP Manager
 
-A PowerShell-based automation tool to capture and replay SNMP device configurations using `snmpsim` and `pysnmp`. This manager handles the "Golden Ratio" environment setup automatically, ensuring compatibility even on systems with multiple Python versions (like Python 3.14).
+A PowerShell-based automation tool for managing `snmpsim` environments. This script handles the heavy lifting of creating a stable Python virtual environment, applying necessary patches for SNMPv3 support, and providing a streamlined menu for recording and replaying SNMP simulations.
+
+---
 
 ## 🚀 Features
 
-- **Smart Environment Detection**: Automatically scans your system `PATH` for Python 3.11 or 3.12.
-- **Auto-VENV Creation**: Builds an isolated environment with validated library versions.
-- **SNMP Capture**: Record live device configurations with real-time OID peeking.
-- **SNMP Replay**: Host a local SNMP agent on port 1161.
-- **Integrated Shell**: Quick access to the managed virtual environment.
-- **SNMPv1/v2c/v3 capture**: little patch enabled support for SNMPv3
+*   **Automated Environment Setup**: Automatically creates a virtual environment using Python 3.11 or 3.12 via the Python Launcher (`py`).
+*   **Dependency Management**: Installs pinned, stable versions of `snmpsim`, `pysnmp`, and required libraries.
+*   **SNMPv3 Patching**: Includes a built-in Python-driven patch to unlock SNMPv3 recording capabilities in `snmpsim`.
+*   **Capture Mode**: Interactive UI to record SNMP data from a target device (v1, v2c, or v3).
+*   **Replay Mode**: Quickly launch a simulation server using recorded `.snmprec` files.
+*   **Venv Shell**: Easily drop into a pre-configured shell with all SNMP tools in your path.
 
-## ⚠️ Version Stability & Conflict Warning
+---
 
-This project is pinned to specific versions to avoid common "Library Hell" in the SNMP ecosystem:
-* **SNMPsim (1.1.7)** & **PySNMP (6.2.6)**: These versions are verified to work together.
-* **The Conflict**: Using newer versions of `pysnmp` or `snmpsim` on Python 3.14+ currently triggers fatal `asyncio` loop errors (e.g., `AttributeError: 'ProactorEventLoop' object has no attribute 'add_reader'`).
-* **The Solution**: This script enforces a "Safe Haven" environment using Python 3.12 logic to bypass these architectural conflicts.
+## 🛠 Prerequisites
 
-## 🛡️ Execution Policy (Important)
+*   **Windows PowerShell** (Run as Administrator if necessary for file permissions).
+*   **Python Launcher (`py.exe`)**: Ensure you have Python **3.11** or **3.12** installed. 
+    *   *Note: Python 3.13+ is currently not supported for these dependencies.*
+    *   [Download Python for Windows](https://www.python.org/downloads/windows/)
 
-Windows may block the execution of downloaded scripts. If you receive a "script execution is disabled" error, use one of the following methods:
+---
 
-**Method A: Bypass for current session (Recommended)**
-Execute this command in your terminal:
-`powershell -ExecutionPolicy Bypass -File .\snmpsim.ps1`
+## 📖 How to Use
 
-**Method B: Unblock the file manually**
-1. Right-click `snmpsim.ps1`.
-2. Select **Properties**.
-3. Check the **Unblock** checkbox at the bottom.
-4. Click **Apply**.
+1.  **Download** sim.ps1 to your local machine.
+2.  **Run the script**:
+    ```powershell
+    .\sim.ps1
+    ```
+3.  **Environment Setup**: On the first run, the script will automatically build the `snmp_env_stable` folder and install all dependencies.
 
-## 📋 Prerequisites
+### Main Menu Options
 
-* **Windows 10/11**
-* **PowerShell 5.1+**
-* **Python 3.12** (Installed and added to your System PATH).
+| Option | Name | Description |
+| :--- | :--- | :--- |
+| **[1]** | **Capture** | Record a real device. Enter the IP and credentials (v1/v2c community or v3 JSON). |
+| **[2]** | **Replay** | Start a simulator. It listens on port `1161`. The community string matches the filename. |
+| **[3]** | **Shell** | Opens a sub-shell with the virtual environment activated for manual CLI work. |
+| **[0]** | **Exit** | Close the manager. |
 
-## 🛠️ Usage
+---
 
-1. **Download**: Place `snmpsim.ps1` in your work directory.
-2. **Run**: Execute the script using one of the methods in the Execution Policy section.
-3. **Initial Setup**: The script will auto-detect Python 3.12 and build the `snmp_env_stable` folder.
-4. **Options**:
-    - **[1] Capture**: Record from a physical IP. (SNMP v1/v2c/v3)
-      * **SNMP v3**: SNMPv3 user and other stuff stored in json file. See example.
-    - **[2] Replay**: Start a simulation from a `.snmprec` file.
-    - **[3] Shell**: Enter the venv. Type `exit` to return to the menu.
+## 📂 SNMPv3 Configuration
+When capturing via SNMPv3, the script will ask for a path to a JSON file. Use the following format:
+```json
+{
+    "user": "myUser",
+    "auth_protocol": "md5",
+    "auth_key": "authpass",
+    "priv_protocol": "des",
+    "priv_key": "privpass"
+}
+```
 
-## 🤖 Credits
+---
 
-This script was developed in collaboration with **Gemini**, an AI collaborator from Google. It was designed to bridge the gap between modern Python environments and stable legacy SNMP simulation requirements, ensuring a seamless "one-click" setup.
+## 🔧 Technical Details
 
-## 📜 License
-MIT License.
+*   **Pinned Versions**:
+    *   `snmpsim`: 1.1.7
+    *   `pysnmp`: 6.2.6
+
+---
+
+## 📝 Notes
+*   **Author**: Voljka + Copilot.
+*   **Version**: 1.2.1
+*   The script uses a "Silent Operator" approach for the environment; once configured, it simply works without manual intervention.
+```
