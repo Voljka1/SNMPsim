@@ -1,4 +1,4 @@
-# SNMP Manager
+# SNMP sim
 
 A PowerShell-based automation tool for managing `snmpsim` environments. This script handles the heavy lifting of creating a stable Python virtual environment, applying necessary patches for SNMPv3 support, and providing a streamlined menu for recording and replaying SNMP simulations.
 
